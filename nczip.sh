@@ -189,14 +189,16 @@ function compress () {
     fi
 
 
-    # Get current deflation level
+    # Report current deflation level, if any, for info purposes only.
+    # Do NOT use this to skip the file: it only reflects the first variable
+    # in the header, and files commonly have some variables (e.g. inherited
+    # from xarray encoding) already compressed while the bulk data variable
+    # is still contiguous/uncompressed. ncks itself only rewrites what isn't
+    # already at the target level per-variable, so always running it here is
+    # both correct and cheap when a file is already fully compressed.
     inlevel=$(ncdump -hs $file | grep _DeflateLevel  | head -1 | awk '{print $3}')
     if [ "$inlevel" != "" ] ; then
         info INFO: Original _DeflationLevel = $inlevel
-    fi
-    if [ "$level" == "$inlevel" ] && [ "$pack" != "1" ]; then
-        notify "First var has target compression - $file skipped."
-        return
     fi
 
     if [[ $ofile == '' ]] ; then
