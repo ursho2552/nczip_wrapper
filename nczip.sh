@@ -25,7 +25,7 @@ function usage() {
         -d,-0,-D	Decompress. (-D decompress and convert to netCDF-3)
         -h		Print this help message.
         -k		Keep original. Output file: extension ".nc" is replaced by ".nz".
-        -M <chunking> 	select NCO chunking policy (default rd1).
+        -M <chunking> 	select NCO chunking map (default scl).
         -o <name> 	Output file name.
         -p		NetCDF pack and compress data (lossy compression, precission is reduced).
         -q		Quiet (do not inform about errors).
@@ -111,7 +111,7 @@ function parse_options() {
     verbose=0
     keep=0
     ofile=''
-    chunk='rd1'
+    chunk='scl'
     size=0
     format=4
     jobs=-1
@@ -172,20 +172,20 @@ function compress () {
     # Check if file exists
     if [[ ! -e $file ]]; then
 	    info "INFO: $file not found - skipped!"
-        continue
+        return
     fi
 
     # Check if file is writable
     if [[ ! -w $file  && $ofile == '' ]]; then
         info "INFO: $file not writable - skipped!"
-        continue
+        return
     fi
 
     # Check if file is netCDF
     ncdump -k $file >/dev/null 2>&1
     if [[ "$?" != "0" ]]; then
         info "INFO: $file not a netCDF file - skipped!"
-        continue
+        return
     fi
 
 
@@ -196,7 +196,7 @@ function compress () {
     fi
     if [ "$level" == "$inlevel" ] && [ "$pack" != "1" ]; then
         notify "First var has target compression - $file skipped."
-        continue;
+        return
     fi
 
     if [[ $ofile == '' ]] ; then
@@ -209,7 +209,7 @@ function compress () {
         # lossless compress (i.e., no packing)
         notify Compressing $file ...
         ferr=/tmp/${sname}_error_$(basename $file .nc)$$.txt
-        cmd="ncks -$format -L $level -a -O $file $ftmp"
+        cmd="ncks -$format -L $level --cnk_map $chunk --cnk_scl 25 -a -O $file $ftmp"
         trap 'rm -f $ftmp*ncks.tmp' EXIT
         info $cmd 2>$ferr
         $cmd 2>$ferr
@@ -224,7 +224,7 @@ function compress () {
             ftmp0=${ftmp}.tmp
             # setup cleanup after interrupts
             trap 'rm -f $ftmp0*ncks.tmp' EXIT
-            cmd="ncks -4 --cnk_map $chunk $file $ftmp0"
+            cmd="ncks -4 --cnk_map $chunk --cnk_scl 25 $file $ftmp0"
             info $cmd
             $cmd
             # change all _FillValue attributes

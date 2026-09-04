@@ -46,8 +46,16 @@ def process_file(file: str, queue: Queue, config: dict) -> None:
         queue.put(False)
         return
 
-    # Run ncequal script
+    # nczip skips files already at the target compression level (or that are
+    # missing/unwritable/not netCDF) without creating a .nz output - that is
+    # not a failure, so don't run ncequal against a file that was never made.
     zipfilename = file[:-1] + 'z'
+    if not os.path.exists(zipfilename):
+        log_message(f"nczip: {file} already at target compression - nothing to do", config)
+        queue.put(True)
+        return
+
+    # Run ncequal script
     ncequal_command = f"{ncequal_script} --nocolors --variable_number {varnum} {file} {zipfilename}"
     with open(os.path.join(input_directory, 'nczip_log'), 'a', encoding="utf-8") as log_file:
         ncequal_result = subprocess.run(ncequal_command, shell=True,
