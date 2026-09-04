@@ -32,10 +32,11 @@ def compare_files(file1: str, file2: str ,randvarnum: int,
                   randtimenum: int, color: bool) -> tuple[str,int]:
     '''
     Compare two netcdf files for equality. The function checks whether the two files contain
-    the same variables and whether the variables have the same values at randomly selected
-    time steps. The number of variables and time steps to be checked can be specified by the
-    user. The function returns a message that indicates whether the files are equal or not,
-    and an exit code that can be used to exit the program with sys.exit(exit_code).
+    the same variables. For variables with a time/TIME coordinate, values are compared at
+    randomly selected time steps; variables without one are compared in full. The number of
+    variables and time steps to be checked can be specified by the user. The function returns
+    a message that indicates whether the files are equal or not, and an exit code that can be
+    used to exit the program with sys.exit(exit_code).
 
     Parameters:
     file1 (str): path to the first file
@@ -54,19 +55,9 @@ def compare_files(file1: str, file2: str ,randvarnum: int,
     ds1 = xr.open_dataset(file1, decode_times=False)
     ds2 = xr.open_dataset(file2, decode_times=False)
 
-    #do inital checks, is dimension 'time' existing, are the same variables
-    #saved in the two files, and do their coordinates have the same sizes?
+    #do inital checks, are the same variables saved in the two files, and do
+    #their coordinates have the same sizes?
     exit_code = 1
-
-    # Check the time dimension
-    if 'time' in ds1.coords:
-        time = 'time'
-    # Remove redundant check if time is not in ds1.coords
-    elif 'TIME' in ds1.coords:
-        time = 'TIME'
-    else:
-        message = f"{fg.error}time or TIME coordinate do not exist, ncequal can't handle this file - exit.{fg.rs}"
-        return message, exit_code
 
     # Check if the two files contain the same variables
     # no need to use list comprehension here
@@ -80,38 +71,70 @@ def compare_files(file1: str, file2: str ,randvarnum: int,
         message = f"{fg.error}the coordinates within the two files have different sizes - files not equal.{fg.rs}"
         return message, exit_code
 
+    # Check the time dimension. Files that have one are spot checked at
+    # random time steps (cheap even for large time series). Files without
+    # one (e.g. time-averaged/spatial-mean fields) are compared in full
+    # instead of being skipped, so they still get a real equality check.
+    if 'time' in ds1.coords:
+        time = 'time'
+    elif 'TIME' in ds1.coords:
+        time = 'TIME'
+    else:
+        time = None
+
     #create list that contains data variables that could be checked
     # - add all variables that are not dimensions or coordinates, and depend on time dimension.
     # use data_vars to only get the data variables and safe the additional checks
-    varlist = [var for var in ds1.data_vars if time in ds1[var].coords]
+    if time is not None:
+        varlist = [var for var in ds1.data_vars if time in ds1[var].coords]
+    else:
+        varlist = list(ds1.data_vars)
+
+    if not varlist:
+        message = f"{fg.error}no comparable data variables found - can't verify equality.{fg.rs}"
+        return message, exit_code
 
     #draw random fields and times: (draw at most as many fields and times as exist in files)
     randvarnum = min(randvarnum, len(varlist))
-    randtimenum = min(randtimenum, ds1[time].shape[0])
-
     # use random choice to recreate the possibility of choosing the same variable multiple times,
     # but remove list comprehension for readability
     randvars = np.random.choice(varlist, size=randvarnum, replace=True)
-    randtimes = np.random.choice(range(ds1[time].shape[0]), size=randtimenum, replace=True)
 
-    #for every variable, check whether all matrix entries for all selected time steps are
-    #equal. Since nan == nan always avaluates to false, nans are set to zero.
-    #then count the number of different variables.
+    if time is not None:
+        randtimenum = min(randtimenum, ds1[time].shape[0])
+        randtimes = np.random.choice(range(ds1[time].shape[0]), size=randtimenum, replace=True)
+
+    #for every variable, check whether all matrix entries (for the selected time
+    #steps, if any) are equal. Since nan == nan always avaluates to false, nans
+    #are set to zero. then count the number of different variables.
     # use xarray equals method to compare the data arrays, which takes care of the nans
     ndifferences = 0
     for var in randvars:
+        if time is not None:
+            equal = ds1[var].isel({time: randtimes}).equals(ds2[var].isel({time: randtimes}))
+        else:
+            equal = ds1[var].equals(ds2[var])
         # add the result directly to ndifferences, no need to use if
-        ndifferences += not ds1[var].isel({time: randtimes}).equals(ds2[var].isel({time: randtimes}))
+        ndifferences += not equal
 
     if ndifferences == 0:
         exit_code = 0
-        message = f"{fg.success}{file1} and {file2} are equal in variables {', '.join(randvars)} at time steps {', '.join(map(str, randtimes))}.{fg.rs}"
+        if time is not None:
+            message = f"{fg.success}{file1} and {file2} are equal in variables {', '.join(randvars)} at time steps {', '.join(map(str, randtimes))}.{fg.rs}"
+        else:
+            message = f"{fg.success}{file1} and {file2} are equal in variables {', '.join(randvars)} (compared in full, no time coordinate).{fg.rs}"
 
     else:
-        message = (
-            f"{fg.error}{file1} and {file2} contain at least {ndifferences} data variables with different values - files not equal.\n{fg.rs}"
-            f"{fg.error}(picked variables {', '.join(randvars)} at time steps {', '.join(map(str, randtimes))}).{fg.rs}"
-            )
+        if time is not None:
+            message = (
+                f"{fg.error}{file1} and {file2} contain at least {ndifferences} data variables with different values - files not equal.\n{fg.rs}"
+                f"{fg.error}(picked variables {', '.join(randvars)} at time steps {', '.join(map(str, randtimes))}).{fg.rs}"
+                )
+        else:
+            message = (
+                f"{fg.error}{file1} and {file2} contain at least {ndifferences} data variables with different values - files not equal.\n{fg.rs}"
+                f"{fg.error}(picked variables {', '.join(randvars)}, compared in full).{fg.rs}"
+                )
         if color:
             message = fg.customred + message + fg.rs
 
