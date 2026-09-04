@@ -190,15 +190,27 @@ function compress () {
 
 
     # Report current deflation level, if any, for info purposes only.
-    # Do NOT use this to skip the file: it only reflects the first variable
-    # in the header, and files commonly have some variables (e.g. inherited
-    # from xarray encoding) already compressed while the bulk data variable
-    # is still contiguous/uncompressed. ncks itself only rewrites what isn't
-    # already at the target level per-variable, so always running it here is
-    # both correct and cheap when a file is already fully compressed.
     inlevel=$(ncdump -hs $file | grep _DeflateLevel  | head -1 | awk '{print $3}')
     if [ "$inlevel" != "" ] ; then
         info INFO: Original _DeflationLevel = $inlevel
+    fi
+
+    # Skip only if EVERY variable already has the target compression level.
+    # Checking just the first variable is unreliable: files commonly have
+    # some variables (e.g. coordinate variables, via inherited xarray
+    # encoding) already compressed while the bulk data variable is still
+    # contiguous/uncompressed.
+    if [ "$pack" != "1" ] ; then
+        # 'string' (variable-length) type is excluded: ncks never chunks or
+        # deflates it regardless of size, so it would never satisfy the check.
+        nvars=$(ncdump -h "$file" | sed -n '/^variables:/,/^$/p' | \
+                grep -cE '^[[:space:]]*(byte|char|short|ushort|int|uint|int64|uint64|float|real|double)[[:space:]]')
+        ncompressed=$(ncdump -hs "$file" | grep _DeflateLevel | \
+                      awk -v l="$level" '$3==l {c++} END{print c+0}')
+        if [ "$nvars" -gt 0 ] && [ "$nvars" == "$ncompressed" ]; then
+            notify "All variables already have target compression - $file skipped."
+            return
+        fi
     fi
 
     if [[ $ofile == '' ]] ; then

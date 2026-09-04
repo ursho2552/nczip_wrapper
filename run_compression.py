@@ -84,20 +84,21 @@ def main(config: dict) -> None:
         if file.endswith('.nc'):
             files_to_process.append(os.path.join(input_directory, file))
 
-    # Process files in parallel (should work as is)
-    processes = []
+    # Process files in parallel, at most max_workers at a time
+    max_workers = config.max_workers
     queue = Queue()
-    for file in files_to_process:
-        p = Process(target=process_file, args=(file, queue, config))
-        processes.append(p)
-        p.start()
-
-    # Wait for all processes to finish
-    for p in processes:
-        p.join()
+    results = []
+    for i in range(0, len(files_to_process), max_workers):
+        batch = files_to_process[i:i + max_workers]
+        processes = [Process(target=process_file, args=(file, queue, config))
+                     for file in batch]
+        for p in processes:
+            p.start()
+        for p in processes:
+            p.join()
+        results.extend(queue.get() for _ in processes)
 
     # Check results and log final message
-    results = [queue.get() for _ in processes]
     if all(results):
         log_message("finished zipping all files", config)
     else:
@@ -119,6 +120,8 @@ if __name__ == "__main__":
                         type=str, help='Path to ncequal script')
     parser.add_argument('--varnum', required=False, default=3, type=int,
                         help='Number of variables to test')
+    parser.add_argument('--max_workers', required=False, default=4, type=int,
+                        help='Maximum number of files to compress in parallel (default: 4)')
 
     CONFIG = parser.parse_args()
     # check if scripts exists
