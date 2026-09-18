@@ -70,6 +70,15 @@ def process_file(file: str, queue: Queue, config: dict) -> None:
     os.rename(zipfilename, file)
     queue.put(True)
 
+# Function to sequentially process a bin (a share of the workload) of files
+def process_bin(bin_files: list, queue: Queue, config: dict) -> None:
+    """
+    Function to process a list of files sequentially within a single worker process.
+    """
+
+    for file in bin_files:
+        process_file(file, queue, config)
+
 # Main function
 def main(config: dict) -> None:
     """
@@ -84,19 +93,30 @@ def main(config: dict) -> None:
         if file.endswith('.nc'):
             files_to_process.append(os.path.join(input_directory, file))
 
-    # Process files in parallel, at most max_workers at a time
+    # Distribute files into max_workers bins of roughly equal total size
+    # (LPT bin-packing: largest files first, each goes into the currently
+    # smallest bin), then run each bin in its own worker process.
     max_workers = config.max_workers
+    sized_files = sorted(
+        ((os.path.getsize(file), file) for file in files_to_process),
+        key=lambda sized_file: sized_file[0], reverse=True
+    )
+    bins = [[] for _ in range(max_workers)]
+    bin_sizes = [0] * max_workers
+    for size, file in sized_files:
+        idx = bin_sizes.index(min(bin_sizes))
+        bins[idx].append(file)
+        bin_sizes[idx] += size
+
+    # Process bins in parallel, one worker process per non-empty bin
     queue = Queue()
-    results = []
-    for i in range(0, len(files_to_process), max_workers):
-        batch = files_to_process[i:i + max_workers]
-        processes = [Process(target=process_file, args=(file, queue, config))
-                     for file in batch]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
-        results.extend(queue.get() for _ in processes)
+    processes = [Process(target=process_bin, args=(file_bin, queue, config))
+                 for file_bin in bins if file_bin]
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
+    results = [queue.get() for _ in files_to_process]
 
     # Check results and log final message
     if all(results):
