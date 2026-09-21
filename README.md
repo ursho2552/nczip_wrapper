@@ -10,100 +10,12 @@ This repository contains scripts to compress NetCDF files using the `nczip` scri
 - `config.yaml`: Configuration file for the `run_compression.py` script.
 - `compress_output.sh`: SLURM job script to compress the contents of a directory.
 
-
 ## Running the Compression Script
-To run the compression script, use the provided SLURM job script compress_output.sh. This script sets up the environment, loads the necessary modules, and runs the compression script with the specified configuration.
-
-In your runscript you can add the path to your local copy of the repository as:
+To run the compression script, you can use the provided compression script:
 
 ```bash
-compression_script=/path/to/nczip_wrapper/compress_output.sh
-```
-
-And run the compression at an appropriate time as:
-
-```bash
-sbatch $compression_script $WRKDIR/$YEAR
-```
-
-Note that you will have to setup your own python environment (see requiremnts.txt) and either define the nczip.sh and ncequal.py paths in compress_output.sh or provide them in the sbatch command as additional inputs:
-
-```bash
-sbatch $compression_script <input_directory> --nczip_script <path> --ncequal_script <path> --varnum <int>
-```
-
-
-
-## SLURM Job Script
-
-To use the compression you can use the following:
-
-```bash
-#!/bin/bash -l
-#SBATCH --job-name=compress_output
-#SBATCH --mail-type=FAIL
-#SBATCH --mail-user=<your_email>
-#SBATCH --time=00:15:00
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --partition=normal
-#SBATCH --constraint=mc
-#SBATCH --account=<account>
-
-# Setup Environment
-module purge
-module load cray
-module load cpeGNU
-module load NCO
-module load cray-python/3.11.5
-
-# Ensure at least one argument (config file) is provided
-if [[ "$#" -lt 1 ]]; then
-    echo "Usage: $0 <input_directory> [--nczip_script <path>] [--ncequal_script <path>] [--varnum <int>]"
-    exit 1
-fi
-
-INPUT_DIRECTORY=$1
-shift  # Shift arguments so that optional ones can be processed
-
-# Default values for optional arguments
-NCZIP_SCRIPT="/path/to/nczip_wrapper/nczip.sh"
-NCEQUAL_SCRIPT="/path/to/nczip_wrapper/ncequal.py"
-VARNUM=5
-
-# Parse optional arguments
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --nczip_script)
-            NCZIP_SCRIPT="$2"
-            shift 2
-            ;;
-        --ncequal_script)
-            NCEQUAL_SCRIPT="$2"
-            shift 2
-            ;;
-        --varnum)
-            VARNUM="$2"
-            shift 2
-            ;;
-        *)
-            echo "Unknown option: $1"
-            exit 1
-            ;;
-    esac
-done
-
-# path to your python environment and the compression script
-PYTHON=/path/to/py3_env/bin/activate
-COMPRESSION_SCRIPT=/path/to/nczip_wrapper/run_compression.py
-
-#run the compression on test directory
-source $PYTHON
-python $COMPRESSION_SCRIPT --input_directory "$INPUT_DIRECTORY" \
-                           --nczip_script "$NCZIP_SCRIPT" \
-                           --ncequal_script "$NCEQUAL_SCRIPT" \
-                           --varnum "$VARNUM"
+compression_script=./run_compression.py
+python $compression_script --input_directory <input_directory> --nczip_script <path_nczip.sh> --ncequal_script <path_ncequal.py> --varnum <int>
 ```
 
 ## Script Descriptions
@@ -123,7 +35,38 @@ This script performs a walk to find all NetCDF files in the subdirectories of th
 
 ## Dependencies
 
-See requirements.txt for python packages and test_submission.sh for modules needed to run on Eiger
+Use the following to get a working python environment using conda:
+
+```bash
+conda create -n py313_nczip python=3.13 -y
+conda activate py313_nczip
+pip install cftime netCDF4 numpy sty xarray
+```
+
+On CSCS this can be done by using the following:
+```bash
+uenv start --view=netcdf netcdf-tools/2025:v2
+```
+
+In the uenv, you can define a new python environment built on top of the existing environment using:
+
+```bash
+unset PYTHONPATH
+export PYTHONUSERBASE="$(dirname "$(dirname "$(which python)")")"
+python -m venv --system-site-packages path/to/my-venv
+```
+
+Then activate it using:
+
+```bash
+source path/to/my-venv/bin/activate
+```
+
+After activating the virtual environment, you can install the required Python packages using:
+
+```bash
+pip install cftime netCDF4 numpy sty xarray
+```
 
 ## Notes
 

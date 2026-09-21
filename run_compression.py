@@ -114,9 +114,12 @@ def main(config: dict) -> None:
                  for file_bin in bins if file_bin]
     for p in processes:
         p.start()
+    # Drain results as they arrive, before joining: a worker's queue.put()
+    # blocks once the underlying pipe buffer fills, and joining first (while
+    # nothing is reading the queue) can deadlock a worker with many files.
+    results = [queue.get() for _ in files_to_process]
     for p in processes:
         p.join()
-    results = [queue.get() for _ in files_to_process]
 
     # Check results and log final message
     if all(results):
