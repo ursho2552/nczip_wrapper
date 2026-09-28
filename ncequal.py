@@ -32,8 +32,8 @@ def compare_files(file1: str, file2: str ,randvarnum: int,
                   randtimenum: int, color: bool) -> tuple[str,int]:
     '''
     Compare two netcdf files for equality. The function checks whether the two files contain
-    the same variables. For variables with a time/TIME coordinate, values are compared at
-    randomly selected time steps; variables without one are compared in full. The number of
+    the same variables. For variables that depend on the time/TIME dimension, values are
+    compared at randomly selected time steps; all other variables are compared in full. The number of
     variables and time steps to be checked can be specified by the user. The function returns
     a message that indicates whether the files are equal or not, and an exit code that can be
     used to exit the program with sys.exit(exit_code).
@@ -71,10 +71,10 @@ def compare_files(file1: str, file2: str ,randvarnum: int,
         message = f"{fg.error}the coordinates within the two files have different sizes - files not equal.{fg.rs}"
         return message, exit_code
 
-    # Check the time dimension. Files that have one are spot checked at
-    # random time steps (cheap even for large time series). Files without
-    # one (e.g. time-averaged/spatial-mean fields) are compared in full
-    # instead of being skipped, so they still get a real equality check.
+    # Check the time dimension. Variables that depend on it are spot checked
+    # at random time steps (cheap even for large time series). Variables
+    # that don't (e.g. static fields, or files without a time axis) are
+    # compared in full, so they still get a real equality check.
     if 'time' in ds1.coords:
         time = 'time'
     elif 'TIME' in ds1.coords:
@@ -83,58 +83,54 @@ def compare_files(file1: str, file2: str ,randvarnum: int,
         time = None
 
     #create list that contains data variables that could be checked
-    # - add all variables that are not dimensions or coordinates, and depend on time dimension.
     # use data_vars to only get the data variables and safe the additional checks
-    if time is not None:
-        varlist = [var for var in ds1.data_vars if time in ds1[var].coords]
-    else:
-        varlist = list(ds1.data_vars)
+    varlist = list(ds1.data_vars)
 
     if not varlist:
         message = f"{fg.error}no comparable data variables found - can't verify equality.{fg.rs}"
         return message, exit_code
 
-    #draw random fields and times: (draw at most as many fields and times as exist in files)
+    #draw random fields: (draw at most as many fields as exist in files)
     randvarnum = min(randvarnum, len(varlist))
     # use random choice to recreate the possibility of choosing the same variable multiple times,
     # but remove list comprehension for readability
     randvars = np.random.choice(varlist, size=randvarnum, replace=True)
 
-    if time is not None:
+    # split the picked variables into time-dependent and static ones
+    timevars = [var for var in randvars if time is not None and time in ds1[var].dims]
+    staticvars = [var for var in randvars if var not in timevars]
+
+    #draw random times only if needed (at most as many as exist in files)
+    if timevars:
         randtimenum = min(randtimenum, ds1[time].shape[0])
         randtimes = np.random.choice(range(ds1[time].shape[0]), size=randtimenum, replace=True)
 
     #for every variable, check whether all matrix entries (for the selected time
-    #steps, if any) are equal. Since nan == nan always avaluates to false, nans
-    #are set to zero. then count the number of different variables.
+    #steps, if time-dependent) are equal, then count the number of different variables.
     # use xarray equals method to compare the data arrays, which takes care of the nans
     ndifferences = 0
-    for var in randvars:
-        if time is not None:
-            equal = ds1[var].isel({time: randtimes}).equals(ds2[var].isel({time: randtimes}))
-        else:
-            equal = ds1[var].equals(ds2[var])
-        # add the result directly to ndifferences, no need to use if
-        ndifferences += not equal
+    for var in timevars:
+        ndifferences += not ds1[var].isel({time: randtimes}).equals(ds2[var].isel({time: randtimes}))
+    for var in staticvars:
+        ndifferences += not ds1[var].equals(ds2[var])
+
+    # describe what was checked, for the output message
+    checked = []
+    if timevars:
+        checked.append(f"variables {', '.join(timevars)} at time steps {', '.join(map(str, randtimes))}")
+    if staticvars:
+        checked.append(f"variables {', '.join(staticvars)} (compared in full)")
+    checked = '; '.join(checked)
 
     if ndifferences == 0:
         exit_code = 0
-        if time is not None:
-            message = f"{fg.success}{file1} and {file2} are equal in variables {', '.join(randvars)} at time steps {', '.join(map(str, randtimes))}.{fg.rs}"
-        else:
-            message = f"{fg.success}{file1} and {file2} are equal in variables {', '.join(randvars)} (compared in full, no time coordinate).{fg.rs}"
+        message = f"{fg.success}{file1} and {file2} are equal in {checked}.{fg.rs}"
 
     else:
-        if time is not None:
-            message = (
-                f"{fg.error}{file1} and {file2} contain at least {ndifferences} data variables with different values - files not equal.\n{fg.rs}"
-                f"{fg.error}(picked variables {', '.join(randvars)} at time steps {', '.join(map(str, randtimes))}).{fg.rs}"
-                )
-        else:
-            message = (
-                f"{fg.error}{file1} and {file2} contain at least {ndifferences} data variables with different values - files not equal.\n{fg.rs}"
-                f"{fg.error}(picked variables {', '.join(randvars)}, compared in full).{fg.rs}"
-                )
+        message = (
+            f"{fg.error}{file1} and {file2} contain at least {ndifferences} data variables with different values - files not equal.\n{fg.rs}"
+            f"{fg.error}(picked {checked}).{fg.rs}"
+            )
         if color:
             message = fg.customred + message + fg.rs
 
