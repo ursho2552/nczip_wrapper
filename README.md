@@ -25,14 +25,14 @@ python $compression_script --input_directory <input_directory> \
 | Argument | Required | Default | Description |
 |---|---|---|---|
 | `--input_directory` | yes | – | Directory searched (recursively) for `.nc` files |
-| `--nczip_script` | no | `/path/to/nczip_wrapper/nczip.sh` | Path to `nczip.sh` |
-| `--ncequal_script` | no | `/path/to/nczip_wrapper/ncequal.py` | Path to `ncequal.py` |
+| `--nczip_script` | no | `nczip.sh` in the same directory as `run_compression.py` | Path to `nczip.sh` |
+| `--ncequal_script` | no | `ncequal.py` in the same directory as `run_compression.py` | Path to `ncequal.py` |
 | `--varnum` | no | `3` | Number of randomly chosen variables checked by `ncequal.py` |
 | `--max_workers` | no | `4` | Number of files compressed in parallel |
 
 Table: Command-line arguments of `run_compression.py`.
 
-The default script paths only exist on the author's CSCS account, so pass `--nczip_script` and `--ncequal_script` explicitly elsewhere.
+With the defaults, the script works from any clone of this repository. You only need `--nczip_script` and `--ncequal_script` to use other copies of the helper scripts.
 
 **Warning:** once a compressed file has passed the `ncequal.py` check, it replaces the original file. If the check fails, the original is kept and the `.nz` file is left next to it for inspection (see `nczip_log`).
 
@@ -41,10 +41,26 @@ The default script paths only exist on the author's CSCS account, so pass `--ncz
 `compress_output.sh` wraps `run_compression.py` in a SLURM job:
 
 ```bash
+cd /path/to/nczip_wrapper
 sbatch compress_output.sh <input_directory> [--nczip_script <path>] [--ncequal_script <path>] [--varnum <int>]
 ```
 
-The job script is configured for CSCS (account `<account>`, partition `normal`, Cray modules) and uses hardcoded paths under `/path/to/`. On other clusters, adapt the `#SBATCH` header, the `module load` lines, and the `PYTHON` and `COMPRESSION_SCRIPT` paths. It does not pass `--max_workers`, so the default of 4 workers is used even though 16 CPUs are requested.
+SLURM runs a copy of the job script from a spool directory, so the job script cannot find the repository from its own location. It reads the repository location from these environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `NCZIP_DIR` | Directory `sbatch` was called from | Repository directory containing `run_compression.py`, `nczip.sh` and `ncequal.py` |
+| `NCZIP_VENV` | unset (no environment activated) | Python virtual environment to activate (directory containing `bin/activate`) |
+
+Table: Environment variables read by `compress_output.sh`.
+
+To submit from elsewhere, or with a virtual environment:
+
+```bash
+NCZIP_DIR=/path/to/nczip_wrapper NCZIP_VENV=/path/to/my-venv sbatch compress_output.sh <input_directory>
+```
+
+The job script is configured for CSCS (account `<account>`, partition `normal`, Cray modules). On other clusters, adapt the `#SBATCH` header and the `module load` lines. It does not pass `--max_workers`, so the default of 4 workers is used even though 16 CPUs are requested.
 
 ## Script Descriptions
 

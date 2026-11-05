@@ -129,18 +129,19 @@ def main(config: dict) -> None:
 
 if __name__ == "__main__":
 
+    # Default helper scripts are the ones shipped next to this file
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Compress .nc files in a give directory')
     parser.add_argument('--input_directory', required=True, type=str,
                         help='Directory containing .nc files to compress')
-    parser.add_argument('--nczip_script', required=False, nargs='?',
-                        const='/path/to/nczip_wrapper/nczip.sh',
-                        default='/path/to/nczip_wrapper/nczip.sh',
-                        type=str, help='Path to nczip script')
-    parser.add_argument('--ncequal_script', required=False, nargs='?',
-                        const='/path/to/nczip_wrapper/ncequal.py',
-                        default='/path/to/nczip_wrapper/ncequal.py',
-                        type=str, help='Path to ncequal script')
+    parser.add_argument('--nczip_script', required=False,
+                        default=os.path.join(SCRIPT_DIR, 'nczip.sh'),
+                        type=str, help='Path to nczip script (default: nczip.sh next to this script)')
+    parser.add_argument('--ncequal_script', required=False,
+                        default=os.path.join(SCRIPT_DIR, 'ncequal.py'),
+                        type=str, help='Path to ncequal script (default: ncequal.py next to this script)')
     parser.add_argument('--varnum', required=False, default=3, type=int,
                         help='Number of variables to test')
     parser.add_argument('--max_workers', required=False, default=4, type=int,

@@ -26,9 +26,17 @@ fi
 INPUT_DIRECTORY=$1
 shift  # Shift arguments so that optional ones can be processed
 
+# Directory containing this repository. sbatch runs a copy of this script from
+# a spool directory, so its location cannot be derived from $0. Set NCZIP_DIR
+# when submitting, otherwise the directory sbatch was called from is used.
+NCZIP_DIR="${NCZIP_DIR:-${SLURM_SUBMIT_DIR:-$PWD}}"
+
+# Optional python virtual environment to activate (directory containing bin/activate)
+NCZIP_VENV="${NCZIP_VENV:-}"
+
 # Default values for optional arguments
-NCZIP_SCRIPT="/path/to/nczip_wrapper/nczip.sh"
-NCEQUAL_SCRIPT="/path/to/nczip_wrapper/ncequal.py"
+NCZIP_SCRIPT="$NCZIP_DIR/nczip.sh"
+NCEQUAL_SCRIPT="$NCZIP_DIR/ncequal.py"
 VARNUM=3
 
 # Parse optional arguments
@@ -53,13 +61,22 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-# path to your python environment and the compression script
-PYTHON=/path/to/py3_env/bin/activate
-COMPRESSION_SCRIPT=/path/to/nczip_wrapper/run_compression.py
+# path to the compression script
+COMPRESSION_SCRIPT="$NCZIP_DIR/run_compression.py"
+if [[ ! -f "$COMPRESSION_SCRIPT" ]]; then
+    echo "ERROR: $COMPRESSION_SCRIPT not found."
+    echo "Submit from the repository directory or set NCZIP_DIR, e.g.:"
+    echo "  NCZIP_DIR=/path/to/nczip_wrapper sbatch compress_output.sh <input_directory>"
+    exit 1
+fi
+
+# activate the python environment, if one is given
+if [[ -n "$NCZIP_VENV" ]]; then
+    source "$NCZIP_VENV/bin/activate"
+fi
 
 #run the compression on test directory
-source $PYTHON
-python $COMPRESSION_SCRIPT --input_directory "$INPUT_DIRECTORY" \
+python "$COMPRESSION_SCRIPT" --input_directory "$INPUT_DIRECTORY" \
                            --nczip_script "$NCZIP_SCRIPT" \
                            --ncequal_script "$NCEQUAL_SCRIPT" \
                            --varnum "$VARNUM"
